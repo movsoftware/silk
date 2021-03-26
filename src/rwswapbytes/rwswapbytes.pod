@@ -1,0 +1,166 @@
+=pod
+
+=head1 NAME
+
+B<rwswapbytes> - Change the byte order of a SiLK Flow file
+
+=head1 SYNOPSIS
+
+  rwswapbytes
+        { --big-endian | --little-endian
+          | --native-endian | --swap-endian }
+        [--note-add=TEXT] [--note-file-add=FILE]
+        [INPUT_FILE [OUTPUT_FILE]]
+
+  rwswapbytes --help
+
+  rwswapbytes --version
+
+=head1 DESCRIPTION
+
+Read the SiLK Flow records from I<INPUT_FILE>, change the byte order
+of each record as specified by the B<--big-endian>,
+B<--little-endian>, B<--native-endian>, or B<--swap-endian> switch,
+and write the records to I<OUTPUT_FILE>.
+
+B<rwswapbytes> reads the input from the standard input either when no
+non-switch arguments are given or when I<INPUT_FILE> is the string
+C<stdin> or C<->.  B<rwswapbytes> writes the output to the standard
+output either when the number of non-switch arguments is less than two
+or when I<OUTPUT_FILE> is the string C<stdout> or C<->.
+
+B<rwswapbytes> exits with an error code if an attempt is made to read
+or write binary data from or to a terminal.
+
+B<rwswapbytes> is able to read and write files that have been
+compressed with B<gzip(1)> when the file's name ends with C<.gz>.
+
+=head1 OPTIONS
+
+Option names may be abbreviated if the abbreviation is unique or is an
+exact match for an option.  A parameter to an option may be specified
+as B<--arg>=I<param> or B<--arg> I<param>, though the first form is
+required for options that take optional parameters.
+
+One of these switches must be provided:
+
+=over 4
+
+=item B<--big-endian>
+
+Write the output file in big-endian (network byte-order) format.
+
+=item B<--little-endian>
+
+Write the output file in little-endian (Intel) format.
+
+=item B<--native-endian>
+
+Write the output file in this machine's native format.
+
+=item B<--swap-endian>
+
+Unconditionally swap the byte-order of the input file.
+
+=item B<--help>
+
+Print the available options and exit.
+
+=item B<--version>
+
+Print the version number and information about how SiLK was
+configured, then exit the application.
+
+=back
+
+These switches are optional:
+
+=over 4
+
+=item B<--note-add>=I<TEXT>
+
+Add the specified I<TEXT> to the header of the output file as an
+annotation.  This switch may be repeated to add multiple annotations
+to a file.  To view the annotations, use the B<rwfileinfo(1)> tool.
+
+=item B<--note-file-add>=I<FILENAME>
+
+Open I<FILENAME> and add the contents of that file to the header of
+the output file as an annotation.    This switch may be repeated to
+add multiple annotations.  Currently the application makes no effort
+to ensure that I<FILENAME> contains text; be careful that you do not
+attempt to add a SiLK data file as an annotation.
+
+=back
+
+=head1 ENVIRONMENT
+
+=over 4
+
+=item SILK_CLOBBER
+
+The SiLK tools normally refuse to overwrite existing files.  Setting
+SILK_CLOBBER to a non-empty value removes this restriction.
+
+=item SILK_CONFIG_FILE
+
+This environment variable contains the location of the site
+configuration file, B<silk.conf(5)>.  For additional locations where
+site configuration file may reside, see the L</FILES> section.
+
+=item SILK_DATA_ROOTDIR
+
+This variable specifies the root of the directory tree where the data
+store of SiLK Flow files is maintained, overriding the location that
+is compiled into the tools (@SILK_DATA_ROOTDIR@).  B<rwswapbytes> may
+search for the site configuration file, F<silk.conf>, in this
+directory.  See the L</FILES> section for details.
+
+=item SILK_PATH
+
+This environment variable gives the root of the directory tree where
+the tools are installed.  As part of its search for the site
+configuration file, B<rwswapbytes> may use this variable.  See the
+L</FILES> section for details.
+
+=back
+
+=head1 FILES
+
+=over 4
+
+=item F<${SILK_CONFIG_FILE}>
+
+=item F<${SILK_DATA_ROOTDIR}/silk.conf>
+
+=item F<@SILK_DATA_ROOTDIR@/silk.conf>
+
+=item F<${SILK_PATH}/share/silk/silk.conf>
+
+=item F<${SILK_PATH}/share/silk.conf>
+
+=item F<@prefix@/share/silk/silk.conf>
+
+=item F<@prefix@/share/silk.conf>
+
+Possible locations for the SiLK site configuration file.
+
+=back
+
+=head1 SEE ALSO
+
+B<rwfileinfo(1)>, B<silk.conf(5)>, B<silk(7)>, B<gzip(1)>
+
+=head1 NOTES
+
+Prior to SiLK 3.16.0, B<rwswapbytes> required explicit arguments for
+the input file and the output file.
+
+=cut
+
+$SiLK: rwswapbytes.pod a273c76a6e08 2018-04-02 19:21:06Z mthomas $
+
+Local Variables:
+mode:text
+indent-tabs-mode:nil
+End:

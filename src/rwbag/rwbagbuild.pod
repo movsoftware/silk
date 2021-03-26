@@ -1,0 +1,952 @@
+=pod
+
+=head1 NAME
+
+B<rwbagbuild> - Create a binary Bag from non-flow data
+
+=head1 SYNOPSIS
+
+  rwbagbuild { --set-input=SETFILE | --bag-input=TEXTFILE }
+        [--delimiter=C] [--proto-port-delimiter=C]
+        [--default-count=DEFAULTCOUNT]
+        [--key-type=FIELD_TYPE] [--counter-type=FIELD_TYPE]
+        [{ --pmap-file=PATH | --pmap-file=MAPNAME:PATH }]
+        [--note-add=TEXT] [--note-file-add=FILE]
+        [--invocation-strip] [--compression-method=COMP_METHOD]
+        [--output-path=PATH]
+
+  rwbagbuild --help
+
+  rwbagbuild --version
+
+=head1 DESCRIPTION
+
+B<rwbagbuild> builds a binary Bag file from an IPset file or from
+textual input.  A Bag is a set of keys where each key is associated
+with a counter.  Usually the key is some aspect of a flow record (an
+IP address, a port, the protocol, et cetera), and the counter is a
+volume (such as the number of flow records or the sum or bytes or
+packets) for the flow records that match that key.
+
+Either B<--set-input> or B<--bag-input> must be provided to specify
+the type and the location of the input file.  To read from the
+standard input, specify C<stdin> or C<-> as the argument to the
+switch.
+
+=head2 SET INPUT
+
+When creating a Bag from an IPset, the value associated with each IP
+address is the value specified by the B<--default-count> switch or 1
+if the switch is not provided.
+
+If the B<--key-type> is C<sip-country>, C<dip-country>, or
+C<any-country>, each IP address is mapped to its country code using
+the country code mapping file (see L</FILES>) and that value is stored
+in the Bag file.
+
+If the B<--key-type> is C<sip-pmap>, C<dip-pmap>, or C<any-ip-pmap>,
+each IP address is mapped to a value found in the prefix map file
+specified in B<--pmap-file> and that value is stored in the Bag file.
+
+=head2 BAG (TEXTUAL) INPUT
+
+The textual input read from the argument to the B<--bag-input> switch
+is processed a line at a time.  Comments begin with a 'C<#>'-character
+and continue to the end of the line; they are stripped from each line.
+Any line that is blank or contains only whitespace is ignored.  All
+other lines must contain a valid key or key-counter pair; whitespace
+around the key and counter is ignored.
+
+A line may contain only a key or it may contain a key and counter
+separated by a delimiter.  Use B<--delimiter> to specify the
+delimiter; the accepted formats of the key are described below.  If
+the delimiter character is not present on a line, the line must
+contain only a key, or a line may contain a key followed by a
+delimiter with no additional text on the line.  In both cases, the
+count is set to 1.  Otherwise, the line must contain a key before the
+delimiter and an integer counter after the delimiter.  These lines may
+have a delimiter after the counter; this delimiter and any text
+following it are ignored.
+
+The B<--default-count> switch B<overrides> any counter value present
+on the line, and any text appearing after the delimiter that follows
+the key is ignored.
+
+For each key-count pair, the key is inserted into Bag with its count
+or, if the key is already present in the Bag, its total count is
+incremented by the count from this line.  When using the
+B<--default-count> switch, the count for a key that appears in the
+input I<N> times is the product of I<N> and I<DEFAULTCOUNT>.
+
+B<rwbagbuild> prints an error and exits when a key or counter cannot
+be parsed.
+
+B<Format of the Key>
+
+The key is a 32-bit integer, an IP address, a CIDR block, a SiLK
+IPWildcard, or a pair of numbers when the key-type is a protocol-port
+prefix map file.
+
+For key-types that use fewer than 32-bits, B<rwbagbuild> does I<not>
+verify the validity of the key.  For example, it is possible to have
+257 as a key in Bag whose key-type is protocol.
+
+B<rwbagbuild> parses specific key-types as follows:
+
+=over 4
+
+=item sIPv4, dIPv4, nhIPv4, any-IPv4
+
+key is an IPv4 address or a 32-bit value; key-type set to
+corresponding IPv6 type when an IPv6 address is present.  A CIDR block
+or SiLK IPWildcard representing multiple addresses adds multiple
+entries to the Bag
+
+=item sIPv6, dIPv6, nhIPv6, any-IPv6
+
+key is an IPv6 address.  An IPv4 address is mapped into the
+::ffff:0:0/96 netblock.  All keys must be IP addresses.
+
+=item flags, initialFlags, sessionFlags
+
+key is the numeric value of the flags, 17 = FIN|ACK
+
+=item sTime, eTime, any-time
+
+key is seconds since the UNIX epoch
+
+=item duration
+
+key represents seconds
+
+=item sensor
+
+key is the numeric sensor ID
+
+=item sip-country, dip-country, any-country
+
+key is an IP address; the F<country_codes.pmap> prefix map file is
+used to map the IP to a country code that is stored in the Bag
+
+=item sip-pmap, dip-pmap, any-ip-pmap
+
+key is an IP address; the specified B<--prefix-map> file is used to
+map the IP to a value that is stored in the Bag
+
+=item sport-pmap, dport-pmap, any-port-pmap
+
+key is comprised of two numbers separated by a delimiter: a protocol
+(8-bit number) and a port (16-bit number).  Those values are looked up
+in the specified B<--prefix-map> file and the result is stored in the
+Bag.  The delimiter separating the protocol and port may be set by
+B<--proto-port-delimiter>.  If not explicitly set, it is the same as
+the delimiter specified to B<--delimiter>.  The default delimiter is
+'C<|>'.
+
+=item attributes
+
+these bits of the key are relevant, though any 32-bit value is
+accepted: 0x08=F, 0x10=S, 0x20=T, 0x40=C
+
+=item class, type
+
+key is treated as a number
+
+=back
+
+An IP address or integer key must be expressed in one of the following
+formats.  B<rwbagbuild> complains if the key field contains a mixture
+of IPv6 addresses and integer values.
+
+=over 4
+
+=item *
+
+Dotted decimal---all 4 octets are required:
+
+ 10.1.2.4
+
+=item *
+
+An unsigned 32-bit integer:
+
+ 167838212
+
+=item *
+
+An IPv6 address in canonical format (when SiLK has been compiled with
+IPv6 support):
+
+ 2001:db8:a:1::2:4
+ ::ffff:10.1.2.4
+
+=item *
+
+Any of the above with a CIDR designation---for dotted decimal all
+four octets are still required:
+
+ 10.1.2.4/31
+ 167838212/31
+ 2001:db8:a:1::2:4/127
+ ::ffff:10.1.2.4/31
+
+=item *
+
+SiLK IP wildcard notation.  A SiLK IP Wildcard can represent multiple
+IPv4 or IPv6 addresses.  An IP Wildcard contains an IP in its
+canonical format, except each part of the IP (where I<part> is an
+octet for IPv4 or a hexadectet for IPv6) may be a single value, a
+range, a comma separated list of values and ranges, or the letter C<x>
+to signify all values for that part of the IP (that is, C<0-255> for
+IPv4).  You may not specify a CIDR suffix when using the IP Wildcard
+notation.
+
+ 10.x.1-2.4,5
+ 2001:db8:a:x::1-2:4,5
+
+=back
+
+=head1 OPTIONS
+
+Option names may be abbreviated if the abbreviation is unique or is an
+exact match for an option.  A parameter to an option may be specified
+as B<--arg>=I<param> or S<B<--arg> I<param>>, though the first form is
+required for options that take optional parameters.
+
+The following two switches control the type of input; one and
+only one must be provided:
+
+=over 4
+
+=item B<--set-input>=I<SETFILE>
+
+Create a Bag from an IPset.  I<SETFILE> is a filename, a named pipe,
+or the keyword C<stdin> or C<-> to read the IPset from the standard
+input.  Counts have a volume of 1 when the B<--default-count> switch
+is not specified.  (IPsets are typically created by B<rwset(1)> or
+B<rwsetbuild(1)>.)
+
+=item B<--bag-input>=I<TEXTFILE>
+
+Create a Bag from a delimited text file.  I<TEXTFILE> is a filename, a
+named pipe, or the keyword C<stdin> or C<-> to read the text from the
+standard input.  See the L</DESCRIPTION> section for the syntax of the
+I<TEXTFILE>.
+
+=item B<--delimiter>=I<C>
+
+Expect the character I<C> between each key-counter pair in the I<TEXTFILE>
+read by the B<--bag-input> switch.  The default delimiter is the
+vertical pipe ('C<|>').  The delimiter is ignored if the
+B<--set-input> switch is specified.  When the delimiter is a
+whitespace character, any amount of whitespace may surround and
+separate the key and counter.  Since 'C<#>' is used to denote comments
+and newline is used to denote records, neither is a valid delimiter
+character.
+
+=item B<--proto-port-delimiter>=I<C>
+
+Expect the character I<C> between the protocol and port that comprise
+a key when the B<--key-type> is C<sport-pmap>, C<dport-pmap>, or
+C<any-port-pmap>.  Unless this switch is specified, B<rwbagbuild>
+expects the key-counter delimiter to appear between the protocol and
+port.
+
+=item B<--default-count>=I<DEFAULTCOUNT>
+
+Override the counts of all values in the input text or IPset with the
+value of I<DEFAULTCOUNT>.  I<DEFAULTCOUNT> must be a positive integer.
+
+=item B<--key-type>=I<FIELD_TYPE>
+
+Write a entry into the header of the Bag file that specifies the key
+contains I<FIELD_TYPE> values.  When this switch is not specified, the
+key type of the Bag is set to C<custom>.  The I<FIELD_TYPE> is case
+insensitive.  The supported I<FIELD_TYPE>s are:
+
+=over 4
+
+=item sIPv4
+
+source IP address, IPv4 only
+
+=item dIPv4
+
+destination IP address, IPv4 only
+
+=item sPort
+
+source port
+
+=item dPort
+
+destination port
+
+=item protocol
+
+IP protocol
+
+=item packets
+
+packets, see also C<sum-packets>
+
+=item bytes
+
+bytes, see also C<sum-bytes>
+
+=item flags
+
+an unsigned bitwise OR of TCP flags
+
+=item sTime
+
+starting time of the flow record, seconds resolution
+
+=item duration
+
+duration of the flow record, seconds resolution
+
+=item eTime
+
+ending time of the flow record, seconds resolution
+
+=item sensor
+
+sensor ID
+
+=item input
+
+SNMP input
+
+=item output
+
+SNMP output
+
+=item nhIPv4
+
+next hop IP address, IPv4 only
+
+=item initialFlags
+
+TCP flags on first packet in the flow
+
+=item sessionFlags
+
+bitwise OR of TCP flags on all packets in the flow except the first
+
+=item attributes
+
+flow attributes set by the flow generator
+
+=item application
+
+guess as to the content of the flow, as set by the flow generator
+
+=item class
+
+class of the sensor
+
+=item type
+
+type of the sensor
+
+=item icmpTypeCode
+
+an encoded version of the ICMP type and code, where the type is in the
+upper byte and the code is in the lower byte
+
+=item sIPv6
+
+source IP, IPv6
+
+=item dIPv6
+
+destination IP, IPv6
+
+=item nhIPv6
+
+next hop IP, IPv6
+
+=item records
+
+count of flows
+
+=item sum-packets
+
+sum of packet counts
+
+=item sum-bytes
+
+sum of byte counts
+
+=item sum-duration
+
+sum of duration values
+
+=item any-IPv4
+
+a generic IPv4 address
+
+=item any-IPv6
+
+a generic IPv6 address
+
+=item any-port
+
+a generic port
+
+=item any-snmp
+
+a generic SNMP value
+
+=item any-time
+
+a generic time value, in seconds resolution
+
+=item sip-country
+
+the country code of the source IP addresss.  For textual input, the
+key column must contain an IP address or an integer.  B<rwbagbuild>
+maps the IP address to a country code and stores the country code in
+the bag.  Uses the mapping file specified by the SILK_COUNTRY_CODES
+environment variable or the F<country_codes.pmap> mapping file, as
+described in L</FILES>.  (See also B<ccfilter(3)>.)  I<Since SiLK
+3.12.0.>
+
+=item dip-country
+
+the country code of the destination IP.  See C<sip-country>.  I<Since
+SiLK 3.12.0.>
+
+=item any-country
+
+the country code of any IP address.  See C<sip-country>.  I<Since SiLK
+3.12.0.>
+
+=item sip-pmap
+
+a prefix map value found from a source IP address.  Maps each IP
+address in the key column to a value from a prefix map file and stores
+the value in the bag.  The type of the prefix map must be IPv4-address
+or IPv4-address.  Use the B<--pmap-file> switch to specify the path to
+the file.  I<Since SiLK 3.12.0.>
+
+=item dip-pmap
+
+a prefix map value found from a destination IP address.  See
+C<sip-pmap>.  I<Since SiLK 3.12.0.>
+
+=item any-ip-pmap:I<PMAP_PATH>
+
+a prefix map value found from any IP address.  See C<sip-pmap>.
+I<Since SiLK 3.12.0.>
+
+=item sport-pmap
+
+a prefix map value found from a protocol/source-port pair.  Each key
+must contain two values, a protocol and a port.  Maps each
+protocol/port pair to a value from a prefix map file and stores the
+value in the bag.  The type of the prefix map must be proto-port.  Use
+the B<--pmap-file> switch to specify the path to the file.  I<Since
+SiLK 3.12.0.>
+
+=item dport-pmap
+
+a prefix map value found from a protocol/destination-port pair.  See
+C<sport-pmap>.  I<Since SiLK 3.12.0.>
+
+=item any-port-pmap
+
+a prefix map value found from a protocol/port pair.  See
+C<sport-pmap>.  I<Since SiLK 3.12.0.>
+
+=item custom
+
+a number
+
+=back
+
+=item B<--counter-type>=I<FIELD_TYPE>
+
+Write a entry into the header of the Bag file that specifies the
+counter contains I<FIELD_TYPE> values.  When this switch is not
+specified, the counter type of the Bag is set to C<custom>.  Although
+the supported I<FIELD_TYPE>s are the same as those for the key, the
+value is always treated as a number that can be summed.  B<rwbagbuild>
+does not use the country code or prefix map when parsing the value
+field.
+
+=item B<--pmap-file>=I<PATH>
+
+=item B<--pmap-file>=I<MAPNAME>:I<PATH>
+
+When the key-type is one of C<sip-pmap>, C<dip-pmap>, C<any-ip-pmap>,
+C<sport-pmap>, C<dport-pmap>, or C<any-port-pmap>, use the prefix map
+file located at I<PATH> to map the key to a string.  Specify I<PATH>
+as C<-> or C<stdin> to read from the standard input.  A map-name may
+be included in the argument to the switch, but B<rwbagbuild> currently
+does not use the map-name.  To create a prefix map file, use
+B<rwpmapbuild(1)>.  I<Since SiLK 3.12.0.>
+
+=item B<--note-add>=I<TEXT>
+
+Add the specified I<TEXT> to the header of the output file as an
+annotation.  This switch may be repeated to add multiple annotations
+to a file.  To view the annotations, use the B<rwfileinfo(1)> tool.
+
+=item B<--note-file-add>=I<FILENAME>
+
+Open I<FILENAME> and add the contents of that file to the header of
+the output file as an annotation.    This switch may be repeated to
+add multiple annotations.  Currently the application makes no effort
+to ensure that I<FILENAME> contains text; be careful that you do not
+attempt to add a SiLK data file as an annotation.
+
+=item B<--invocation-strip>
+
+Do not record the command used to create the Bag file in the output.
+When this switch is not given, the invocation is written to the file's
+header, and the invocation may be viewed with B<rwfileinfo(1)>.
+I<Since SiLK 3.12.0.>
+
+=item B<--compression-method>=I<COMP_METHOD>
+
+Specify the compression library to use when writing output files.  If
+this switch is not given, the value in the SILK_COMPRESSION_METHOD
+environment variable is used if the value names an available
+compression method.  When no compression method is specified,
+output to the standard output or to named pipes is not compressed, and
+output to files is compressed using the default chosen when SiLK was
+compiled.  The valid values for I<COMP_METHOD> are determined by which
+external libraries were found when SiLK was compiled.  To see the
+available compression methods and the default method, use the
+B<--help> or B<--version> switch.  SiLK can support the following
+I<COMP_METHOD> values when the required libraries are available.
+
+=over 4
+
+=item none
+
+Do not compress the output using an external library.
+
+=item zlib
+
+Use the B<zlib(3)> library for compressing the output, and always
+compress the output regardless of the destination.  Using zlib
+produces the smallest output files at the cost of speed.
+
+=item lzo1x
+
+Use the I<lzo1x> algorithm from the LZO real time compression library
+for compression, and always compress the output regardless of the
+destination.  This compression provides good compression with less
+memory and CPU overhead.
+
+=item snappy
+
+Use the I<snappy> library for compression, and always compress the
+output regardless of the destination.  This compression provides good
+compression with less memory and CPU overhead.  I<Since SiLK 3.13.0.>
+
+=item best
+
+Use lzo1x if available, otherwise use snappy if available, otherwise
+use zlib if available.  Only compress the output when writing to a
+file.
+
+=back
+
+=item B<--output-path>=I<PATH>
+
+Write the binary Bag output to I<PATH>, where I<PATH> is a filename, a
+named pipe, the keyword C<stderr> to write the output to the standard
+error, or the keyword C<stdout> or C<-> to write the output to the
+standard output.  If I<PATH> names an existing file, B<rwbagtool>
+exits with an error unless the SILK_CLOBBER environment variable is
+set, in which case I<PATH> is overwritten.  If this switch is not
+given, the output is written to the standard output.  Attempting to
+write the binary output to a terminal causes B<rwbagtool> to exit with
+an error.
+
+=item B<--help>
+
+Print the available options and exit.
+
+=item B<--version>
+
+Print the version number and information about how SiLK was
+configured, then exit the application.
+
+=back
+
+=head1 EXAMPLES
+
+In the following examples, the dollar sign (C<$>) represents the shell
+prompt.  The text after the dollar sign represents the command line.
+Lines have been wrapped for improved readability, and the back slash
+(C<\>) is used to indicate a wrapped line.
+
+=head2 Create a bag with IP addresses as keys from a text file
+
+Assume the file F<mybag.txt> contains the following lines, where each
+line contains an IP address, a comma as a delimiter, a count, and ends
+with a newline.
+
+ 192.168.0.1,5
+ 192.168.0.2,500
+ 192.168.0.3,3
+ 192.168.0.4,14
+ 192.168.0.5,5
+
+To build a bag with it:
+
+ $ rwbagbuild --bag-input=mybag.txt --delimiter=, > mybag.bag
+
+Use B<rwbagcat(1)> to view its contents:
+
+ $ rwbagcat mybag.bag
+     192.168.0.1|                   5|
+     192.168.0.2|                 500|
+     192.168.0.3|                   3|
+     192.168.0.4|                  14|
+     192.168.0.5|                   5|
+
+=head2 Create a bag with protocols as keys from a text file
+
+To create a Bag of protocol data from the text file F<myproto.txt>:
+
+   1|      4|
+   6|    138|
+  17|    131|
+
+use
+
+ $ rwbagbuild --key-type=proto --bag-input=myproto.txt > myproto.bag
+ $ rwbagcat myproto.bag
+          1|                   4|
+          6|                 138|
+         17|                 131|
+
+When the B<--key-type> switch is specified, B<rwbagcat> knows the keys
+should be printed as integers, and B<rwfileinfo(1)> shows the type of
+the key:
+
+ $ rwfileinfo --fields=bag myproto.bag
+ myproto.bag:
+   bag            key: protocol @ 4 octets; counter: custom @ 8 octets
+
+Without the B<--key-type> switch, B<rwbagbuild> assumes the integers
+in F<myproto.txt> represent IP addresses:
+
+ $ rwbagbuild --bag-input=myproto.txt | rwbagcat
+         0.0.0.1|                   4|
+         0.0.0.6|                 138|
+        0.0.0.17|                 131|
+
+Although the B<--key-format> switch on B<rwbagcat> may be used to
+choose how the keys are displayed, it is generally better to use the
+B<--key-type> switch when creating the bag.
+
+$ rwbagbuild --bag-input=myproto.txt | rwbagcat --key-format=decimal
+         1|                   4|
+         6|                 138|
+        17|                 131|
+
+=head2 Create a bag and override the existing counter
+
+To ignore the counts that exist in F<myproto.txt> and set the counts
+for each protocol to 1, use the B<--default-count> switch which
+overrides the existing value:
+
+ $ rwbagbuild --key-type=protocol --bag-input=myproto.txt  \
+        --default-count=1 --output-path=myproto1.bag
+ $ rwbagcat myproto1.bag
+          1|                   1|
+          6|                   1|
+         17|                   1|
+
+=head2 Create a bag from multiple text files
+
+To create a bag from multiple text files (F<X.txt>, F<Y.txt>, and
+F<Z.txt>), use the UNIX B<cat(1)> utility to concatenate the files and
+have B<rwbagbuild> read the combined input.  To avoid creating a
+temporary file, feed the output of B<cat> as the standard input to
+B<rwbagbuild>.
+
+ $ cat X.txt Y.txt Z.txt                                \
+   | rwbagbuild --bag-input=- --output-path=xyz.bag
+
+For each key that appears in multiple input files, B<rwbagbuild> sums
+the counters for the key.
+
+=head2 Create a bag with IP addresses as keys from an IPset file
+
+Given the IP set F<myset.set>, create a bag where every entry in the
+bag has a count of 3:
+
+ $ rwbagbuild --set-input=myset.set --default-count=3  \
+        --out=mybag2.bag
+
+=head2 Create a bag from multiple IPset files
+
+Suppose we have three IPset files, F<A.set>, F<B.set>, and F<C.set>:
+
+ $ rwsetcat A.set
+ 10.0.0.1
+ 10.0.0.2
+ $ rwsetcat B.set
+ 10.0.0.2
+ 10.0.0.3
+ $ rwsetcat C.set
+ 10.0.0.1
+ 10.0.0.2
+ 10.0.0.4
+
+We want to create a bag file from these IPset files where the count
+for each IP address is the number of files that IP appears in.
+B<rwbagbuild> accepts a single file as an argument, so we cannot do
+the following:
+
+ $ rwbagbuild --set-input=A.set --set-input=B.set ...   # WRONG!
+
+(Even if we could repeat the B<--set-input> switch, specifying it
+multiple times would be annoying if we had 300 files instead of only
+3.)
+
+Since IPset files are (mathematical) sets, joining them together first
+with B<rwsettool(1)> and then running B<rwbagbuild> causes each IP
+address to get a count of 1:
+
+ $ rwsettool --union A.set B.set C.set   \
+   | rwbagbuild --set-input=-            \
+   | rwbagcat
+        10.0.0.1|                   1|
+        10.0.0.2|                   1|
+        10.0.0.3|                   1|
+        10.0.0.4|                   1|
+
+When B<rwbagbuild> is processing textual input, it sums the counters
+for keys that appear in the input multiple times.  We can use
+B<rwsetcat(1)> to convert each IPset file to text and feed that as
+single textual stream to B<rwbagbuild>.  Use the B<--cidr-blocks>
+switch on B<rwsetcat> to reduce the amount of input that B<rwbagbuild>
+must process.  This is probably the best approach to the problem:
+
+ $ rwsetcat --cidr-block *.set | rwbagbuild --bag-input=- > total1.bag
+ $ rwbagcat total1.bag
+        10.0.0.1|                   2|
+        10.0.0.2|                   3|
+        10.0.0.3|                   1|
+        10.0.0.4|                   1|
+
+A less efficient solution is to convert each IPset to a bag and then
+use B<rwbagtool(1)> to add the bags together:
+
+ $ for i in *.set ; do
+        rwbagbuild --set-input=$i --output-path=/tmp/$i.bag ;
+   done
+ $ rwbagtool --add /tmp/*.set.bag > total2.bag
+ $ rm /tmp/*.set.bag
+
+There is no need to create a bag file for each IPset; we can get by
+with only two bag files, the final bag file, F<total3.bag>, and a
+temporary file, F<tmp.bag>.  We initialize F<total3.bag> to an empty
+bag.  As we loop over each IPset, B<rwbagbuild> converts the IPset to
+a bag on its standard output, B<rwbagtool> creates F<tmp.bag> by
+adding its standard input to F<total3.bag>, and we rename F<tmp.bag>
+to F<total3.bag>:
+
+ $ rwbagbuild --bag-input=/dev/null --output-path=total3.bag
+ $ for i in *.set ; do
+        rwbagbuild --set-input=$i  \
+        | rwbagtool --output-path=tmp.bag --add total3.bag stdin ;
+        /bin/mv tmp.bag total3.bag ;
+   done
+ $ rwbagcat total3.bag
+        10.0.0.1|                   2|
+        10.0.0.2|                   3|
+        10.0.0.3|                   1|
+        10.0.0.4|                   1|
+
+=head2 Create a bag where the key is the country code
+
+As of SiLK 3.12.0, a Bag file may contain a country code as its key.
+In B<rwbagbuild>, specify the B<--key-type> as C<sip-country>,
+C<dip-country>, or C<any-country>.  That key-type works with either
+textual input or IPset input.  The form of the textual input when
+mapping an IP address to a country code is identical to that when
+building an ordinary bag.
+
+ $ rwbagbuild --bag-input=mybag.txt --delimiter=,       \
+        --key-type=any-country --output-path=scc1.bag
+ $ rwbagcat scc1.bag
+ --|                 527|
+
+ $ rwbagbuild --set-input=A.set --key-type=any-country  \
+        --output-path=scc2.bag
+ $ rwbagcat scc2.bag
+ --|                   2|
+
+=head2 Create a bag using a prefix map value as the key
+
+B<rwbagbuild> and B<rwbag(1)> can use a prefix map file as the key in
+a Bag file as of SiLK 3.12.0.  Use the B<--pmap-file> switch to
+specify the prefix map file, and specify the B<--key-type> using one
+of the types that end in C<-pmap>.
+
+For a prefix map that maps by IP addresses, use a key-type of
+C<sip-pmap>, C<dip-pmap>, or C<any-ip-pmap>.  The input may be an
+IPset or text.  The form of the textual input is the same as for a
+normal bag file.
+
+ $ rwbagbuild --set-input=A.set --key-type=sip-pmap     \
+        --pmap-file=ip-map.pmap --output=test1.bag
+
+ $ rwbagbuild --bag-input=mybag.txt --delimiter=,       \
+        --key-type=sip-pmap --pmap-file=ip-map.pmap     \
+        --output-path=test2.bag
+
+The prefix map file is not stored as part of the Bag, so you must
+provide the name of the prefix map when running B<rwbagcat(1)>.
+
+ $ rwbagcat --pmap-file=ip-map.pmap test2.bag
+          internal|                 527|
+
+For a prefix map file that maps by protocol-port pairs, the textual
+input must contain either three column (protocol, port, counter) or
+two columns (protocol and port) which uses the B<--default-counter>.
+
+ $ cat proto-port-count.txt
+ 6| 25|  800|
+ 6| 80| 5642|
+ 6| 22
+ $ rwbagbuild --key-type=sport-pmap                 \
+        --bag-input=proto-port-count.txt            \
+        --pmap-file=proto-port-map.pmap             \
+        --output-path=service.bag
+ $ rwbagcat --pmap-file=port-map.pmap service.bag
+   TCP/SSH|                   1|
+  TCP/SMTP|                 800|
+  TCP/HTTP|                5642|
+
+=head2 Delimiter examples
+
+A single value followed by an optional delimiter is treated as a key.
+The counter for those keys is set to 1.  A delimiter may follow the
+count, and any text after that delimiter is ignored.  When the counter
+is 0, the key is not inserted into the Bag.
+
+ $ cat sport.txt
+ 0
+ 1|
+ 2|3
+ 4|5|
+ 6|7|8|
+ 9|10|||||
+ 11|0
+ $ rwbagbuild --bag-input=sport.txt --key-type=sport \
+   | rwbagcat
+          0|                   1|
+          1|                   1|
+          2|                   3|
+          4|                   5|
+          6|                   7|
+          9|                  10|
+
+The B<--default-counter> switch overrides the count.
+
+ $ rwbagbuild --bag-input=sport.txt --key-type=sport --default-count=1 \
+   | rwbagcat
+          0|                   1|
+          1|                   1|
+          2|                   1|
+          4|                   1|
+          6|                   1|
+          9|                   1|
+         11|                   1|
+
+In fact, the B<--default-counter> switch causes B<rwbagbuild> to
+ignore all text after the delimiter that follows the key.
+
+ $ echo '12|13 14' | rwbagbuild --bag-input=- --output=/dev/null
+ rwbagbuild: Error parsing line 1: Extra text after count
+ rwbagbuild: Error creating bag from text bag
+
+ $ echo '12|13 14' | rwbagbuild --bag-input=- --default-count=1 \
+   | rwbagcat --key-format=decimal
+         12|                   1|
+
+=head1 ENVIRONMENT
+
+=over 4
+
+=item SILK_COUNTRY_CODES
+
+This environment variable allows the user to specify the country code
+mapping file that B<rwbagbuild> uses when mapping an IP to a country
+for the C<sip-country>, C<dip-country>, or C<any-country> keys.  The
+value may be a complete path or a file relative to the SILK_PATH.  See
+the L</FILES> section for standard locations of this file.
+
+=item SILK_CLOBBER
+
+The SiLK tools normally refuse to overwrite existing files.  Setting
+SILK_CLOBBER to a non-empty value removes this restriction.
+
+=item SILK_COMPRESSION_METHOD
+
+This environment variable is used as the value for
+B<--compression-method> when that switch is not provided.  I<Since
+SiLK 3.13.0.>
+
+=item SILK_PATH
+
+This environment variable gives the root of the install tree.  When
+searching for the country code mapping file, B<rwbagbuild> may use
+this environment variable.  See the L</FILES> section for details.
+
+=back
+
+=head1 FILES
+
+=over 4
+
+=item F<$SILK_COUNTRY_CODES>
+
+=item F<$SILK_PATH/share/silk/country_codes.pmap>
+
+=item F<$SILK_PATH/share/country_codes.pmap>
+
+=item F<@prefix@/share/silk/country_codes.pmap>
+
+=item F<@prefix@/share/country_codes.pmap>
+
+Possible locations for the country code mapping file required by the
+C<sip-country>, C<dip-country>, and C<any-country> key-types.
+
+=back
+
+=head1 SEE ALSO
+
+B<rwbag(1)>, B<rwbagcat(1)>, B<rwbagtool(1)>, B<rwfileinfo(1)>,
+B<rwpmapbuild(1)>, B<rwset(1)>, B<rwsetbuild(1)>, B<rwsetcat(1)>,
+B<rwsettool(1)>, B<ccfilter(3)>, B<silk(7)>, B<zlib(3)>, B<cat(1)>
+
+=head1 BUGS
+
+B<rwbagbuild> should verify the key's value is within the allowed
+range for the specified B<--key-type>.
+
+B<rwbagbuild> should accept non-numeric values for some fields, such
+as times and TCP flags.
+
+The B<--default-count> switch is poorly named.
+
+=cut
+
+$SiLK: rwbagbuild.pod f040f1c10ff5 2019-10-11 20:00:55Z mthomas $
+
+Local Variables:
+mode:text
+indent-tabs-mode:nil
+End:

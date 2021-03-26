@@ -1,0 +1,28 @@
+# -*- makefile -*-
+# RCSIDENT("$SiLK: Makefile-sources f46f64e26678 2017-10-09 20:48:58Z mthomas $");
+
+# sources for libsilk
+SOURCES_LIBSILK = addrtype.c flowcapio.c hashlib.c \
+	 pmapfilter.c rwascii.c \
+	 rwaugmentedio.c rwaugroutingio.c rwaugsnmpoutio.c rwaugwebio.c \
+	 rwfilterio.c rwgenericio.c rwipv6io.c rwipv6routingio.c \
+	 rwnotroutedio.c rwpack.c rwrec.c rwroutedio.c rwsplitio.c rwwwwio.c \
+	 skaggbag.c skbag.c skbitmap.c skcompmethod.c skcountry.c skdaemon.c \
+	 skdllist.c skfileformat.c skheader.c skheader-legacy.c \
+	 skheader_priv.h skheap.c skiobuf.c skiobuf.h skipset.c \
+	 sklog.c skmempool.c sknetstruct.c skoptionsctx.c skoptions-notes.c \
+	 skplugin-simple.c skplugin.c skprefixmap.c skqsort.c \
+	 sksite.c sksiteconfig.h sksiteconfig_lex.l sksiteconfig_parse.y \
+	 skstream.c skstream-err.c skstream_priv.h skstringmap.c \
+	 sktempfile.c \
+	 sku-app.c sku-bigsockbuf.c sku-compat.c sku-filesys.c sku-ips.c \
+	 sku-options.c sku-string.c sku-times.c sku-wrapgetopt.c skvector.c \
+	 redblack/redblack.c
+
+if HAVE_CYGWIN
+SOURCES_LIBSILK += skcygwin.c skcygwin.h
+endif
+
+# sources for libsilk-thrd
+SOURCES_LIBSILK_THRD = skdeque.c sklog-thrd.c \
+	skpolldir.c skthread.c sktimer.c

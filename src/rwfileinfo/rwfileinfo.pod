@@ -1,0 +1,569 @@
+=pod
+
+=head1 NAME
+
+B<rwfileinfo> - Print information about a SiLK file
+
+=head1 SYNOPSIS
+
+  rwfileinfo [--fields=FIELDS] [--summary] [--no-titles]
+        [--site-config-file=FILENAME]
+        {--xargs | --xargs=FILENAME | FILE [FILE...]}
+
+  rwfileinfo --help
+
+  rwfileinfo --help-fields
+
+  rwfileinfo --version
+
+=head1 DESCRIPTION
+
+B<rwfileinfo> prints information about a binary SiLK file that can be
+determined by reading the file's header and by moving quickly over the
+data blocks in the file.
+
+B<rwfileinfo> requires one or more filename arguments to be given on
+the command line or the use of the B<--xargs> switch.  When the
+B<--xargs> switch is provided, B<rwfileinfo> reads the names of the
+files to process from the named text file or from the standard input
+if no file name argument is provided to the switch.  The input to
+B<--xargs> must contain one file name per line.  B<rwfileinfo> does
+not read a SiLK file's content from the standard input by default, but
+it does when either C<-> or C<stdin> is given as a filename argument.
+
+When the B<--summary> switch is given, B<rwfileinfo> first prints the
+information for each individual file and then prints the number of
+files processed, the sum of the individual file sizes, and the sum of
+the individual record counts.
+
+=head2 Field Descriptions
+
+By default, B<rwfileinfo> prints the following information for each
+file argument.  Use the B<--fields> switch to modify which pieces of
+information are printed.
+
+(B<rwfileinfo> prints each field in the order in which support for
+that field was added to SiLK.  The field descriptions are presented
+here in a more logical order.)
+
+=over 4
+
+=item B<file-size>
+
+The size of the file on disk as reported by the operating system.
+B<rwfileinfo> prints 0 for the file-size when reading from the
+standard input.
+
+=item B<version>
+
+Every binary file written by SiLK has a version number field.  Since
+SiLK 1.0.0, the version number field has been used to indicate the
+general structure (or layout) of the file.  The file structure adopted
+in SiLK 1.0.0 uses a version number of 16 and has a I<header section>
+and a I<data section>.  The header section begins with 16 bytes that
+specify well-defined values, and those bytes are followed by one or
+more variably-sized I<header entries>.  The specifics of the data
+section depend on the content of the file.
+
+=item B<header-length>
+
+The header-length field shows the number of octets required by header
+(i.e., the initial 16 bytes and the header entries).  Since everything
+after the header is data, the header-length is the starting offset of
+the data section.  The smallest header length is 24 bytes, but
+typically the header is padded to be an integer multiple of the
+record-length.  The header-length that B<rwfileinfo> prints for a file
+is determined dynamically by reading the file's header.
+
+=item B<silk-version>
+
+When a SiLK tool creates a binary file, the tool writes the current
+SiLK release number (such as 3.9.0) into the file's header as a way to
+help diagnose issues should a bug with a particular release of SiLK be
+discovered in the future.
+
+=item B<byte-order>
+
+Every SiLK file has a byte-order or I<endian> field.  SiLK uses the
+machine's native representation of integers when writing data, and
+this field shows what representation the file contains.  C<BigEndian>
+is network byte order and C<littleEndian> is used by Intel chips.  The
+B<rwswapbytes(1)> tool changes a file's integer representation, and
+some tools have a B<--byte-order> switch that allows the user to
+specify the integer representation of output files.  The
+header-section of a file is always written in network byte order.
+
+=item B<compression>
+
+SiLK tools may use the zlib library (L<http://zlib.net/>), the LZO
+library (L<http://www.oberhumer.com/opensource/lzo/>), or the snappy
+library (L<http://google.github.io/snappy/>) to compress the
+data section of a file.  The compression field specifies which library
+(if any) was used to compress the data section.  If a file is
+compressed with a library that was not included in an installation
+of SiLK, SiLK is unable to read the data section of the file.  Many
+SiLK tools accept the B<--compression-method> switch to choose a
+particular compression method.  (The compression field does not
+indicate whether the entire file has been compressed with an external
+compression utility such as B<gzip(1)>.)
+
+=item B<format>
+
+Every binary file written by SiLK has two fields in the header that
+specify exactly what the file contains: the format and the
+record-version.  In general, the I<format> indicates the content type
+of the file and the I<record-version> indicates the evolution of that
+content.
+
+The contents of a file whose format is C<FT_IPSET>, C<FT_RWBAG>, or
+C<FT_PREFIXMAP> is fairly obvious (an IPset, a Bag, a prefix map).
+
+There are many different file formats for writing SiLK Flow records,
+but the SiLK analysis tools largely use a single Flow file format.
+That format is C<FT_RWIPV6ROUTING> if SiLK has been compiled with IPv6
+support, or C<FT_RWGENERIC> otherwise.  A file that uses the
+C<FT_RWGENERIC> format is only capable of holding IPv4 addresses.
+
+The other SiLK Flow file formats are created by B<rwflowpack(8)> as it
+writes flow records to the repository.  These formats often omit
+fields and use reduced bit-sizes for fields to reduce the space
+required for an individual flow record.
+
+The record-version field indicates changes within the general type
+specified by the format field.  For example, SiLK incremented the
+record-version of the formats that hold flow records when the
+resolution of record timestamps was changed from seconds to
+milliseconds.
+
+=begin comment
+
+It is somewhat arbitrary whether a change to a file's representation
+is handled by incrementing the record-version or introducing a new
+format.  A new format was introduced when IPv6 flow record support was
+added, but the record-version was changed to indicate IPset files that
+held IPv6 addresses.
+
+=end comment
+
+=item B<record-version>
+
+Together with the B<format> fields specifies the contents of the file.
+See the discussion of B<format> for details.
+
+=begin comment
+
+Prior to SiLK 1.0.0, binary SiLK files had a single version number
+that represented two aspects of a file's contents: how the records
+were written to disk and information common across files.  SiLK 1.0.0
+introduced header entries as a way to hold common values, changed the
+old version number to represent the file's structure (that is, a file
+that had header entries), and added a new record-version field.
+
+=end comment
+
+=item B<record-length>
+
+Files created by SiLK 1.0.0 and later have a record length field.
+This field contains the length of an individual record, and this value
+is dependent on the format and record-version fields described above.
+Some files (such as those containing IPsets or prefix maps) do not
+write individual records to the output, and the record length is 1 for
+these files.
+
+=item B<count-records>
+
+The count-records field is generated dynamically by determining the
+length the data section would require if it were completely
+uncompressed and dividing it by the record-length.  When the
+record-length is 1 (such as for IPset files), the count-records field
+does not provide much information beyond the length of the
+uncompressed data.  For an uncompressed file, adding header-length to
+the product of count-records and record-length is equal to the
+file-size.
+
+=back
+
+The fields given above are either present in the well-defined header
+or are computed by reading the file.
+
+The following fields are generated by reading the header entries and
+determining if one or more header entries of the specified type are
+present.  The field is not printed in the output when the header entry
+is not present in the file.
+
+=over
+
+=item B<command-lines>
+
+Many of the SiLK tools write a header entry to the output file that
+contains the command line invocation used to create that file, and
+some of the SiLK tools also copy the command line history from their
+input files to the output file.  (The B<--invocation-strip> switch on
+the tools can be used to prevent copying and recording of the
+invocation.)  The command lines are stored in individual header
+entries and this field displays those entries with the most recent
+invocation at the end of the list.
+
+The command line history is has a couple of issues:
+
+=over 4
+
+=item *
+
+When multiple input files are used to create a single output, the
+entries are stored as a list, and this makes it is difficult to know
+which set of command line entries are associated with which input
+file.
+
+=item *
+
+When a SiLK tool creates multiple output files (e.g., when using both
+B<--pass> and B<--fail> to B<rwfilter(1)>), the tool writes the same
+command line entry to each output file.  Some context in addition to
+the command line history may be needed to know which branch of that
+tool a particular file represents.
+
+=back
+
+=item B<annotations>
+
+Most of SiLK tools that create binary output files provide the
+B<--note-add> and B<--note-file-add> switches which allow an arbitrary
+annotation to be added to the header of a file.  Some tools also copy
+the annotations from the source files to the destination files.  The
+annotations are stored in individual header entries and this field
+displays those entries.
+
+=item B<ipset>
+
+The IPset writing tools (B<rwset(1)>, B<rwsetbuild(1)>,
+B<rwsettool(1)>, B<rwaggbagtool(1)>, and B<rwbagtool(1)>) support the
+following output formats for IPset data structures:
+
+=over 4
+
+=item S< 2 >
+
+May hold only IPv4 addresses and does not have an ipset header entry.
+
+=item S< 3 >
+
+May hold IPv4 or IPv6 addresses and is readable by S<SiLK 3.0> and
+later.  It contains a header entry that describes the IPset data
+structure, and the entry specifies the number of nodes, the number of
+branches from each node, the number of leaves, the size of the nodes
+and leaves, and which node is the root of the tree.
+
+=item S< 4 >
+
+May hold IPv4 or IPv6 addresses and is readable by S<SiLK 3.7> and
+later.  The file's header entry specifies whether the file contains
+IPv4 addresses or IPv6 addresses.
+
+=item S< 5 >
+
+May hold only IPv6 addresses and is readable by
+S<SiLK 3.14> and later.  The header entry specifies that the file
+contains IPv6 data.
+
+=back
+
+=item B<bag>
+
+Since SiLK 3.0.0, the tools that write binary Bag files (B<rwbag(1)>,
+B<rwbagbuild(1)>, and B<rwbagtool(1)>) have written a header entry
+that specifies the type and size of the key and of the counter in the
+file.
+
+=item B<aggregate-bag>
+
+The tools B<rwaggbag(1)>, B<rwaggbagbuild(1)>, and B<rwaggbagtool(1)>
+write a header entry that contains the field types that comprise the
+key and the counter.
+
+=item B<prefix-map>
+
+When using B<rwpmapbuild(1)> to create a prefix map file, a string
+that specifies a I<mapname> may be provided.  B<rwpmapbuild> writes
+the mapname to a header entry in the prefix map file.  The mapname is
+used to generate command line switches or field names when the
+B<--pmap-file> switch is specified to several of the SiLK tools (see
+B<pmapfilter(3)> for details).  When displaying the mapname,
+B<rwfileinfo> prefixes it with the string C<v1:> which denotes a
+version number for the prefix-map header entry.  (The version number
+is printed for completeness.)
+
+=item B<packed-file-info>
+
+When B<rwflowpack(8)> creates a SiLK Flow file for the repository, all
+the records in the file have the same starting hour, the same sensor,
+and the same flowtype (class/type pair).  B<rwflowpack> writes a
+header entry to the file that contains these values, and this field
+displays those values.  (To print the names for the sensor and
+flowtype, the B<silk.conf(5)> file must be accessible.)
+
+=item B<probe-name>
+
+When B<flowcap(8)> creates a SiLK flow file, it adds a header entry
+specifying the name of the probe from which the data was collected.
+
+=back
+
+=head1 OPTIONS
+
+Option names may be abbreviated if the abbreviation is unique or is an
+exact match for an option.  A parameter to an option may be specified
+as B<--arg>=I<param> or B<--arg> I<param>, though the first form is
+required for options that take optional parameters.
+
+=over 4
+
+=item B<--fields>=I<FIELDS>
+
+Specify what information to print for each file argument on the
+command line.  I<FIELDS> is a comma separated list of field-names,
+field-integers, and ranges of field-integers; a range is specified by
+separating the start and end of the range with a hyphen (B<->).
+Field-names are case-insensitive and may be shortened to a unique
+prefix.  When the B<--fields> option is not given, all fields are
+printed if the file contains the necessary information.  The fields
+are always printed in the order they appear here regardless of the
+order they are specified in I<FIELDS>.
+
+The possible field values are given next with a brief description of
+each.  For a full description of each field, see L</Field
+Descriptions> above.
+
+=over 4
+
+=item format,1
+
+The contents of the file as a name and the corresponding hexadecimal
+ID.
+
+=item version,2
+
+An integer describing the layout or structure of the file.
+
+=item byte-order,3
+
+Either C<BigEndian> or C<littleEndian> to indicate the representation
+used to store integers in the file (network or non-network byte
+order).
+
+=item compression,4
+
+The compression library (if any) used to compress the data-section of
+the file, specified as a name and its decimal ID.
+
+=item header-length,5
+
+The octet length of the file's header; alternatively the offset where
+data begins.
+
+=item record-length,6
+
+The octet length of a single record or the value 1 if the file's
+content is not record-based.
+
+=item count-records,7
+
+The number of records in the file, computed by dividing the
+uncompressed data length by the record-length.
+
+=item file-size,8
+
+The size of the file on disk as reported by the operating system.
+
+=item command-lines,9
+
+The command line invocation used to generate this file.
+
+=item record-version,10
+
+The version of the records contained in the file.
+
+=item silk-version,11
+
+The release of SiLK that wrote this file.
+
+=item packed-file-info,12
+
+For a repository Flow file generated by B<rwflowpack(8)>, this prints
+the timestamp of the starting hour, the flowtype, and the sensor of
+each flow record in the file.
+
+=item probe,13
+
+For a Flow file generated by B<flowcap(8)>, the name of the probe
+where the flow records where initially collected.
+
+=item annotations,14
+
+The notes (annotations) that users have added to the file's header.
+
+=item prefix-map,15
+
+For a prefix map file, the C<mapname> that was set when the file was
+created by B<rwpmapbuild(1)>.
+
+=item ipset,16
+
+For an IPset file whose record-version is 3, a description of the tree
+data structure.  For an IPset file whose record-version is 4, the type
+of IP addresses (IPv4 or IPv6).
+
+=item bag,17
+
+For a bag file, the type and size of the key and of the counter.
+
+=item aggregate-bag,18
+
+For an aggregate bag file, the field types that comprise the key and
+the counter.
+
+=back
+
+=item B<--summary>
+
+After the data for each individual file is printed, print a summary
+that shows the number of files processed, the sum of the individual
+file sizes, and the total number of records contained in those files.
+
+=item B<--no-titles>
+
+Suppress printing of the file name and field names.  The output
+contains only the values, where each value is printed left-justified
+on a single line.
+
+=item B<--site-config-file>=I<FILENAME>
+
+Read the SiLK site configuration from the named file I<FILENAME>.
+When this switch is not provided, B<rwfileinfo> searches for the site
+configuration file in the locations specified in the L</FILES>
+section.
+
+=item B<--xargs>
+
+=item B<--xargs>=I<FILENAME>
+
+Read the names of the input files from I<FILENAME> or from the
+standard input if I<FILENAME> is not provided.  The input is expected
+to have one filename per line.  B<rwfileinfo> opens each named file in
+turn and prints its information as if the filenames had been listed on
+the command line.  I<Since S<SiLK 3.15.0>.>
+
+=item B<--help>
+
+Print the available options and exit.
+
+=item B<--help-fields>
+
+Print a description of each field, its alias, and exit.
+
+=item B<--version>
+
+Print the version number and information about how SiLK was
+configured, then exit the application.
+
+=back
+
+=head1 EXAMPLE
+
+In the following examples, the dollar sign (C<$>) represents the shell
+prompt.  The text after the dollar sign represents the command line.
+
+=for comment
+Lines have been wrapped for improved readability, and the back slash
+(C<\>) is used to indicate a wrapped line.
+
+Get information about the file F<tcp-data.rw>:
+
+ $ rwfileinfo tcp-data.rw
+ tcp-data.rw:
+   format(id)          FT_RWGENERIC(0x16)
+   version             16
+   byte-order          littleEndian
+   compression(id)     none(0)
+   header-length       208
+   record-length       52
+   record-version      5
+   silk-version        1.0.1
+   count-records       7
+   file-size           572
+   command-lines
+                    1  rwfilter --proto=6 --pass=tcp-data.rw ...
+   annotations
+                    1  This is some interesting TCP data
+
+
+Return a single value which is the number of records in the file
+F<tcp-data.rw>:
+
+ $ rwfileinfo --no-titles --field=count-records tcp-data.rw
+ 7
+
+
+=head1 ENVIRONMENT
+
+=over 4
+
+=item SILK_CONFIG_FILE
+
+This environment variable is used as the value for the
+B<--site-config-file> when that switch is not provided.
+
+=item SILK_DATA_ROOTDIR
+
+This environment variable specifies the root directory of data
+repository.  As described in the L</FILES> section, B<rwfileinfo> may
+use this environment variable when searching for the SiLK site
+configuration file.
+
+=item SILK_PATH
+
+This environment variable gives the root of the install tree.  When
+searching for configuration files, B<rwfileinfo> may use this
+environment variable.  See the L</FILES> section for details.
+
+=back
+
+=head1 FILES
+
+=over 4
+
+=item F<${SILK_CONFIG_FILE}>
+
+=item F<${SILK_DATA_ROOTDIR}/silk.conf>
+
+=item F<@SILK_DATA_ROOTDIR@/silk.conf>
+
+=item F<${SILK_PATH}/share/silk/silk.conf>
+
+=item F<${SILK_PATH}/share/silk.conf>
+
+=item F<@prefix@/share/silk/silk.conf>
+
+=item F<@prefix@/share/silk.conf>
+
+Possible locations for the SiLK site configuration file which are
+checked when the B<--site-config-file> switch is not provided.
+
+=back
+
+=head1 SEE ALSO
+
+B<rwfilter(1)>, B<rwaggbag(1)>, B<rwaggbagbuild(1)>,
+B<rwaggbagtool(1)>, B<rwbag(1)>, B<rwbagbuild(1)>, B<rwbagtool(1)>,
+B<rwpmapbuild(1)>, B<rwset(1)>, B<rwsetbuild(1)>, B<rwsettool(1)>
+B<rwswapbytes(1)>, B<silk.conf(5)>, B<pmapfilter(3)>, B<flowcap(8)>,
+B<rwflowpack(8)>, B<silk(7)>, B<gzip(1)>
+
+=cut
+
+$SiLK: rwfileinfo.pod 1ab93cad9e81 2018-02-26 19:07:35Z mthomas $
+
+Local Variables:
+mode:text
+indent-tabs-mode:nil
+End:
